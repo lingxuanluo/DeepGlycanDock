@@ -1,0 +1,2 @@
+protein_path,ligand_path,pocket_path,protein_surface
+single_case/8ufh_y75_prepared.pdb,single_case/ss-84.sdf,single_case/surface/8ufh_y75_prepared/8ufh_y75_prepared_1to50_60_61_62_63.pdb,single_case/surface/8ufh_y75_prepared/8ufh_y75_prepared_1to50_60_61_62_63.ply
