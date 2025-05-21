@@ -1,7 +1,3 @@
-"""
-caoduanhua : we should to implemented a parapllel version of evaluate.py for a large dataset
-"""
-
 import copy
 import os, traceback
 import torch
@@ -332,8 +328,6 @@ def main_function():
                                 residue_list = analyze_pocket_residues(data_list, residue_pred_list)
 
                                 assert len(confidence_list)==len(confidence_names)==len(sdf_names)==len(pocket_path_list)
-                            """ add a save command by caoduanhua to save the last state of ligand """
-                            ########################################################################
                             if args.save_docking_result:
                                 """"if you use multiple molecule parallel inference, you should re_order the confidence one by one"""
                                 # add a parm to control the number of save ligand pose
