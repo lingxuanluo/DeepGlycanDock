@@ -203,8 +203,10 @@ def main_function():
     esm_embeddings_dict = torch.load(args.esm_embeddings_path)
     ligand_embeddinds_dict = pickle.load(open(args.ligand_embeddings_path,'rb'))
     confidence_list = []
+    confidence_list_csv = []
     confidence_names = []
     sdf_names = []
+    sdf_names_csv = []
     pocket_path_list =[]
 
     failures = 0
@@ -220,7 +222,6 @@ def main_function():
             dirname = os.path.splitext(pocket_path.split('/')[-1])[0] + '_'+ os.path.splitext(ligands_path.split('/')[-1])[0] 
             write_dir =  os.path.join(args.out_dir,'DeepGlycanDock_docking_result',dirname)
             os.makedirs(write_dir, exist_ok=True)
-            print(esm_embeddings_dict)
             esm_embeddings = copy.deepcopy(esm_embeddings_dict[os.path.splitext(os.path.basename(pocket_path))[0]])
             ligand_embeddings = copy.deepcopy(ligand_embeddinds_dict[os.path.splitext(os.path.basename(ligands_path))[0]])
 
@@ -364,9 +365,11 @@ def main_function():
                                             atom_filename = f'{data_list[true_idx]["name"]}_sample_idx_{batch_idx}_rank_{rank + 1}_rmsd_{rmsd}_confidence_{confidence_tmp[batch_idx]}_atom.txt'
                                             residue_filename = f'{data_list[true_idx]["name"]}_sample_idx_{batch_idx}_rank_{rank + 1}_rmsd_{rmsd}_confidence_{confidence_tmp[batch_idx]}_residue.txt'
                                         else:
-                                            result_filename = f'{data_list[true_idx]["name"]}_sample_idx_{batch_idx}_rank_{rank + 1}_confidence_{confidence_tmp[batch_idx]}.sdf'
-                                            atom_filename = f'{data_list[true_idx]["name"]}_sample_idx_{batch_idx}_rank_{rank + 1}_confidence_{confidence_tmp[batch_idx]}_atom.txt'
-                                            residue_filename = f'{data_list[true_idx]["name"]}_sample_idx_{batch_idx}_rank_{rank + 1}_confidence_{confidence_tmp[batch_idx]}_residue.txt'
+                                            result_filename = f'rank_{rank + 1}.sdf'
+                                            sdf_names_csv.append(result_filename)
+                                            atom_filename = f'rank_{rank + 1}_atom.txt'
+                                            residue_filename = f'rank_{rank + 1}_residue.txt'
+                                            confidence_list_csv.append(confidence_tmp[batch_idx])
                                         
                                         write_mol_with_coords(mol_pred, pos, os.path.join(write_dir, result_filename.split('/')[-1]))
                                         with open(os.path.join(write_dir, atom_filename.split('/')[-1]), 'w') as f:
@@ -454,7 +457,7 @@ def main_function():
         logger.info('Docking output molecule number: {}',all_molecules)
         # logger.info('Docking time used for one moleculer: {}',docking_time/all_molecules)
 
-    result = pd.DataFrame({'sdf_name':sdf_names,'confidence':confidence_list,'confidence_name':confidence_names,'pocket_path':pocket_path_list})
+    result = pd.DataFrame({'sdf_name':sdf_names_csv,'confidence':confidence_list_csv,'confidence_name':confidence_names,'pocket_path':pocket_path_list})
     csv_flag = os.path.basename(args.data_csv).split('.')[0]
     result.to_csv(f'{args.out_dir}/{csv_flag}_head_{str(args.head_index)}_tail_{str(args.tail_index)}_confidence_on_device_{device}.csv',index=False)
 

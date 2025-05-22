@@ -330,14 +330,15 @@ def analyze_sugar_rings(data_list, ligand_pred_list):
             # print(ring_indices)
             ring_pred_values = torch.sigmoid(mol_pred_values[ring_indices]).flatten().tolist()
             # print(ring_pred_values)
+            formatted_pred_values = [f"{pred:.3f}" for pred in ring_pred_values]
             avg_pred = sum(ring_pred_values) / len(ring_pred_values)
 
             # Print details
             return_list[mol_idx].append(f"Sugar Ring {ring_idx + 1}:")
             return_list[mol_idx].append(f"    Composition: {ring_composition}")
             return_list[mol_idx].append(f"    Atom Indices: {ring}")
-            return_list[mol_idx].append(f"    Individual Predictions: {ring_pred_values}")
-            return_list[mol_idx].append(f"    Average Prediction: {avg_pred:.4f}\n")
+            return_list[mol_idx].append(f"\n    Individual Predictions: [{', '.join(formatted_pred_values)}]")
+            return_list[mol_idx].append(f"    Average Prediction: {avg_pred:.3f}\n")
     return return_list
 
 def read_pdb_heavy_atoms(pdb_path):
