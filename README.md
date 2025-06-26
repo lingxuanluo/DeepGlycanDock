@@ -6,8 +6,8 @@ Generate accurate protein-ligand complexes, screen compounds using DeepGlycanDoc
 
 For questions or support, please open an issue or contact us at he-xinheng@foxmail.com.
 ## Table of Contents
-1. [Environment Setup](#Environment Setup)
-2. [Running DeepGlycanDock on Your Complexes](#Running DeepGlycanDock on Your Complexes)
+1. [Environment Setup](#Environment-Setup)
+2. [Running DeepGlycanDock on Your Complexes](#Running-DeepGlycanDock-on-Your-Complexes)
 3. [License](#license)
 
 ## Environment Setup
