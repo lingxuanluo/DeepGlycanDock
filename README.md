@@ -70,20 +70,12 @@ mamba install -y -c conda-forge openbabel
 These scripts demonstrate how to use DeepGlycanDock for evaluation and compound screening.
 ## Running DeepGlycanDock on Your Complexes
 To perform docking on your protein-glycan complexes, use the following commands:
-Basic Docking
-python test_my_glycan.py \
-  --protein <path_to_protein> \
-  --ligand <path_to_sdf_ligand> \
-  --ref_ligand <path_to_pdb_ligand_define_site> \
-  --output_dir ./output
+Basic Docking: \
+python test_my_glycan.py   --protein <path_to_protein>  --ligand <path_to_sdf_ligand>   --ref_ligand <path_to_pdb_ligand_define_site>   --output_dir ./output
 
 Docking with Specified Pocket Residues
-To specify pocket residues for docking:
-python test_my_glycan_res.py \
-  --protein single_case/8ufh_y75_prepared.pdb \
-  --ligand single_case/ss-84.sdf \
-  --pocket_residue "1-50,60,61,62,63" \
-  --output_dir ./output
+To specify pocket residues for docking: \
+python test_my_glycan_res.py   --protein single_case/8ufh_y75_prepared.pdb   --ligand single_case/ss-84.sdf   --pocket_residue "1-50,60,61,62,63"   --output_dir ./output
 
 Replace the file paths and residue numbers with your own data as needed.
 ## License
