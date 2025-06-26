@@ -2,15 +2,13 @@
 DeepGlycanDock is a cutting-edge tool for accurate and reliable protein-glycan docking, developed by Xinheng He. Leveraging glycan pretraining, ESM3 protein embeddings, and glycan-ring-specific information, it delivers superior performance in predicting glycan binding poses.
 This repository provides the code, instructions, and model weights to:
 
-Generate accurate protein-ligand complexes.
-Screen compounds using DeepGlycanDock.
-Evaluate the tool's performance.
+Generate accurate protein-ligand complexes, screen compounds using DeepGlycanDock, and evaluate the tool's performance.
 
 For questions or support, please open an issue or contact us at he-xinheng@foxmail.com.
 ## Table of Contents
-Environment Setup
-Running DeepGlycanDock on Your Complexes
-License
+1. [Environment Setup](#Environment Setup)
+2. [Running DeepGlycanDock on Your Complexes](#Running DeepGlycanDock on Your Complexes)
+3. [License](#license)
 
 ## Environment Setup
 Follow these steps to configure the DeepGlycanDock environment:
