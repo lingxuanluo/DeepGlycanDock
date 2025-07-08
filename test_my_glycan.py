@@ -84,49 +84,49 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, pocket_resi
     surface_dir = case_dir / "surface"
     
     # Step 1: Generate ligand representation
-    logger.info("Step 1: Generating ligand representation")
-    cmd1 = f"python ./helpers/gene_1repr.py {ligand_path}"
-    run_command(cmd1, "Ligand Representation")
+    # logger.info("Step 1: Generating ligand representation")
+    # cmd1 = f"python ./helpers/gene_1repr.py {ligand_path}"
+    # run_command(cmd1, "Ligand Representation")
     
-    # Step 2: Generate protein surface
-    logger.info("Step 2: Generating protein surface")
-    surface_dir.mkdir(parents=True, exist_ok=True)
-    if pocket_residue:
-        cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single_res.py --pdb_file {protein_path} --residue_list \"{pocket_residue}\" --out_dir {surface_dir}"
-    else:
-        cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single.py --pdb_file {protein_path} --ligand_file {ref_ligand_path} --out_dir {surface_dir}"
-    run_command(cmd2, "Protein Surface Generation")
-    # print(cmd2)
+    # # Step 2: Generate protein surface
+    # logger.info("Step 2: Generating protein surface")
+    # surface_dir.mkdir(parents=True, exist_ok=True)
+    # if pocket_residue:
+    #     cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single_res.py --pdb_file {protein_path} --residue_list \"{pocket_residue}\" --out_dir {surface_dir}"
+    # else:
+    #     cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single.py --pdb_file {protein_path} --ligand_file {ref_ligand_path} --out_dir {surface_dir}"
+    # run_command(cmd2, "Protein Surface Generation")
+    # # print(cmd2)
     
-    # Step 3: Generate ESM3 protein embeddings
-    logger.info("Step 3: Generating ESM3 protein embeddings")
-    esm_embedding_dir.mkdir(parents=True, exist_ok=True)
-    cmd3a = f"python ./helpers/fasta_extract_pdb.py --protein_path {protein_path} --out_file {fasta_path}"
-    cmd3b = f"python ./helpers/e3_test.py --fasta_path {fasta_path} --output_dir {esm_embedding_dir}"
-    run_command(cmd3a, "FASTA Extraction")
-    run_command(cmd3b, "ESM3 Embedding Generation")
+    # # Step 3: Generate ESM3 protein embeddings
+    # logger.info("Step 3: Generating ESM3 protein embeddings")
+    # esm_embedding_dir.mkdir(parents=True, exist_ok=True)
+    # cmd3a = f"python ./helpers/fasta_extract_pdb.py --protein_path {protein_path} --out_file {fasta_path}"
+    # cmd3b = f"python ./helpers/e3_test.py --fasta_path {fasta_path} --output_dir {esm_embedding_dir}"
+    # run_command(cmd3a, "FASTA Extraction")
+    # run_command(cmd3b, "ESM3 Embedding Generation")
     
-    # Step 4: Generate CSV file
-    logger.info("Step 4: Generating CSV file")
-    generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, pocket_residue, csv_path)
+    # # Step 4: Generate CSV file
+    # logger.info("Step 4: Generating CSV file")
+    # generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, pocket_residue, csv_path)
     
-    # Step 5: Map pocket ESM embedding
-    logger.info("Step 5: Mapping pocket ESM embedding")
-    esm_embedding_save_dir.mkdir(parents=True, exist_ok=True)
-    cmd5 = f"python ./datasets/get_pocket_embedding.py --protein_pocket_csv {csv_path} --embeddings_dir {esm_embedding_dir} --pocket_emb_save_dir {esm_embedding_save_dir}"
-    run_command(cmd5, "Pocket ESM Embedding Mapping")
+    # # Step 5: Map pocket ESM embedding
+    # logger.info("Step 5: Mapping pocket ESM embedding")
+    # esm_embedding_save_dir.mkdir(parents=True, exist_ok=True)
+    # cmd5 = f"python ./datasets/get_pocket_embedding.py --protein_pocket_csv {csv_path} --embeddings_dir {esm_embedding_dir} --pocket_emb_save_dir {esm_embedding_save_dir}"
+    # run_command(cmd5, "Pocket ESM Embedding Mapping")
     
-    # Step 6: Save pocket ESM embedding to single file
-    logger.info("Step 6: Saving pocket ESM embedding to single file")
-    cmd6 = f"python ./datasets/esm_pocket_embeddings_to_pt.py --esm_embeddings_path {esm_embedding_save_dir} --output_path {pocket_embedding_path}"
-    run_command(cmd6, "Pocket ESM Embedding Saving")
+    # # Step 6: Save pocket ESM embedding to single file
+    # logger.info("Step 6: Saving pocket ESM embedding to single file")
+    # cmd6 = f"python ./datasets/esm_pocket_embeddings_to_pt.py --esm_embeddings_path {esm_embedding_save_dir} --output_path {pocket_embedding_path}"
+    # run_command(cmd6, "Pocket ESM Embedding Saving")
     
     # Step 7: Final docking
     logger.info("Step 7: Running final docking")
     docking_out_dir = output_dir
     docking_out_dir.mkdir(parents=True, exist_ok=True)
     cmd7 = (
-        f"python ./inference_accelerate_glycan{'_res' if pocket_residue else ''}.py "
+        f"python -m accelerate.commands.launch --main_process_port 29515 --num_processes 1 ./inference_accelerate_glycan{'_res' if pocket_residue else ''}.py "
         f"--data_csv {csv_path} "
         f"--model_dir ./model_weights/glycan_finetune "
         f"--ckpt epoch_best_model.pt "
@@ -147,8 +147,10 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, pocket_resi
         f"--inference_mode Screen "
         f"--ligand_embeddings_path {ligand_embedding_path}"
     )
+    
     if large_ligand:
         cmd7 += " --keep_input_pose --force_optimize  "
+    # print(cmd7)
     run_command(cmd7, "Final Docking")
     
     logger.info(f"Docking pipeline completed. Results saved in {docking_out_dir}")
