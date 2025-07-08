@@ -19,29 +19,33 @@ def run_command(command, step_name):
         logger.error(f"Error in {step_name}: {e.stderr}")
         raise
 
-def generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, output_csv):
-    """Generate a CSV file with paths for a single protein, ligand, ref ligand, pocket, and surface."""
+def generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, pocket_residue, output_csv):
+    """Generate a CSV file with paths for a single protein, ligand, ref ligand or pocket, and surface."""
     protein_path = Path(protein_path)
     ligand_path = Path(ligand_path)
-    ref_ligand_path = Path(ref_ligand_path)
     
     case_dir = protein_path.parent
     protein_name = protein_path.stem
-    ref_ligand_name = ref_ligand_path.stem  # e.g., 'ref_lig' or 'custom_lig'
     
-    # Construct pocket and surface paths using the reference ligand name
-    pocket_path = case_dir / "surface" / case_dir.name / f"{protein_name}_{ref_ligand_name}_8A.pdb"
-    surface_path = case_dir / "surface" / case_dir.name / f"{protein_name}_{ref_ligand_name}_8A.ply"
+    if pocket_residue:
+        residue_str = pocket_residue.replace(",", "_").replace("-", "to")
+        pocket_path = case_dir / "surface" / protein_name / f"{protein_name}_{residue_str}.pdb"
+        surface_path = case_dir / "surface" / protein_name / f"{protein_name}_{residue_str}.ply"
+    else:
+        ref_ligand_path = Path(ref_ligand_path)
+        ref_ligand_name = ref_ligand_path.stem
+        pocket_path = case_dir / "surface" / case_dir.name / f"{protein_name}_{ref_ligand_name}_8A.pdb"
+        surface_path = case_dir / "surface" / case_dir.name / f"{protein_name}_{ref_ligand_name}_8A.ply"
     
-    if not (protein_path.exists() and ligand_path.exists() and ref_ligand_path.exists()):
+    if not (protein_path.exists() and ligand_path.exists()):
         raise FileNotFoundError("One or more input files are missing.")
-    
-    # Note: Pocket and surface files will be generated in step 2, so we don't check their existence here
+    if ref_ligand_path and not Path(ref_ligand_path).exists():
+        raise FileNotFoundError("Reference ligand file is missing.")
     
     df = pd.DataFrame({
         'protein_path': [str(protein_path)],
         'ligand_path': [str(ligand_path)],
-        'ref_ligand': [str(ref_ligand_path)],
+        'ref_ligand': [str(ref_ligand_path)] if ref_ligand_path else None,
         'pocket_path': [str(pocket_path)],
         'protein_surface': [str(surface_path)]
     })
@@ -52,25 +56,30 @@ def generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, output_
     logger.info(f"CSV file saved to {output_csv}")
     return str(output_csv)
 
-def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir):
+def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, pocket_residue, output_dir, large_ligand=False):
     """Run the full docking pipeline with the specified inputs."""
     protein_path = Path(protein_path)
     ligand_path = Path(ligand_path)
-    ref_ligand_path = Path(ref_ligand_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     case_dir = protein_path.parent
     protein_name = protein_path.stem
     ligand_name = ligand_path.stem
-    ref_ligand_name = ref_ligand_path.stem
+    
+    if pocket_residue:
+        residue_str = pocket_residue.replace(",", "_").replace("-", "to")
+        pocket_embedding_path = case_dir / f"{protein_name}_{residue_str}_8A.pt"
+    else:
+        ref_ligand_path = Path(ref_ligand_path)
+        ref_ligand_name = ref_ligand_path.stem
+        pocket_embedding_path = case_dir / f"{protein_name}_{ref_ligand_name}_8A.pt"
     
     # Paths for intermediate and output files
     csv_path = case_dir / "output_paths.csv"
     fasta_path = case_dir / f"{protein_name}.fasta"
     esm_embedding_dir = case_dir / "esm_embedding"
     esm_embedding_save_dir = case_dir / "esm_embedding_save"
-    pocket_embedding_path = case_dir / f"{protein_name}_{ref_ligand_name}_8A.pt"
     ligand_embedding_path = case_dir / f"{ligand_name}_unimol_repr.pkl"
     surface_dir = case_dir / "surface"
     
@@ -82,8 +91,12 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir)
     # Step 2: Generate protein surface
     logger.info("Step 2: Generating protein surface")
     surface_dir.mkdir(parents=True, exist_ok=True)
-    cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single.py --pdb_file {protein_path} --ligand_file {ref_ligand_path} --out_dir {surface_dir}"
+    if pocket_residue:
+        cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single_res.py --pdb_file {protein_path} --residue_list \"{pocket_residue}\" --out_dir {surface_dir}"
+    else:
+        cmd2 = f"python ./comp_surface/prepare_target/computeTargetMesh_single.py --pdb_file {protein_path} --ligand_file {ref_ligand_path} --out_dir {surface_dir}"
     run_command(cmd2, "Protein Surface Generation")
+    # print(cmd2)
     
     # Step 3: Generate ESM3 protein embeddings
     logger.info("Step 3: Generating ESM3 protein embeddings")
@@ -95,7 +108,7 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir)
     
     # Step 4: Generate CSV file
     logger.info("Step 4: Generating CSV file")
-    generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, csv_path)
+    generate_single_case_csv(protein_path, ligand_path, ref_ligand_path, pocket_residue, csv_path)
     
     # Step 5: Map pocket ESM embedding
     logger.info("Step 5: Mapping pocket ESM embedding")
@@ -113,7 +126,7 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir)
     docking_out_dir = output_dir
     docking_out_dir.mkdir(parents=True, exist_ok=True)
     cmd7 = (
-        f"python ./inference_accelerate_glycan.py "
+        f"python ./inference_accelerate_glycan{'_res' if pocket_residue else ''}.py "
         f"--data_csv {csv_path} "
         f"--model_dir ./model_weights/glycan_finetune "
         f"--ckpt epoch_best_model.pt "
@@ -123,7 +136,7 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir)
         f"--mdn_dist_threshold_test 3 "
         f"--esm_embeddings_path {pocket_embedding_path} "
         f"--run_name ./model_weights/posepredict_test_dist_3 "
-        f"--project DeepGlycanDock_eval_samples/carb_test "
+        f"--project 'DeepGlycanDock'_eval_samples/carb_test "
         f"--out_dir {docking_out_dir} "
         f"--batch_size 40 "
         f"--batch_size_molecule 1 "
@@ -134,12 +147,14 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, output_dir)
         f"--inference_mode Screen "
         f"--ligand_embeddings_path {ligand_embedding_path}"
     )
+    if large_ligand:
+        cmd7 += " --keep_input_pose --force_optimize  "
     run_command(cmd7, "Final Docking")
     
     logger.info(f"Docking pipeline completed. Results saved in {docking_out_dir}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Run docking pipeline with protein, ligand, and reference ligand inputs.")
+    parser = argparse.ArgumentParser(description="Run docking pipeline with protein, ligand, and either reference ligand or pocket residue inputs.")
     parser.add_argument(
         "--protein",
         default="single_case/8ufh_y75_prepared.pdb",
@@ -150,21 +165,37 @@ def main():
         default="single_case/ss-84.sdf",
         help="Path to ligand SDF file (default: single_case/ss-84.sdf)"
     )
+
     parser.add_argument(
         "--ref_ligand",
-        default="single_case/ref_lig.pdb",
-        help="Path to reference ligand PDB file (default: single_case/ref_lig.pdb)"
+        default=None,
+        help="Path to reference ligand PDB file (default: None)"
+    )
+    parser.add_argument(
+        "--pocket_residue",
+        default=None,
+        help="Comma-separated list of residue numbers or ranges for pocket (e.g., '1-50,60,61,62,63') (default: None)"
     )
     parser.add_argument(
         "--output_dir",
-        default="./output",
-        help="Directory to save docking results (default: ./output)"
+        default="./output2",
+        help="Directory to save docking results (default: ./output2)"
+    )
+    parser.add_argument(
+        "--large_ligand",
+        action="store_true",
+        help="If set, adds --keep_input_pose to the final docking command"
     )
     
     args = parser.parse_args()
     
+    if args.pocket_residue and args.ref_ligand:
+        raise ValueError("Cannot specify both --pocket_residue and --ref_ligand. Choose one.")
+    if not args.pocket_residue and not args.ref_ligand:
+        raise ValueError("Must specify either --pocket_residue or --ref_ligand.")
+    
     try:
-        run_docking_pipeline(args.protein, args.ligand, args.ref_ligand, args.output_dir)
+        run_docking_pipeline(args.protein, args.ligand, args.ref_ligand, args.pocket_residue, args.output_dir, args.large_ligand)
     except Exception as e:
         logger.error(f"Pipeline failed: {str(e)}")
         raise

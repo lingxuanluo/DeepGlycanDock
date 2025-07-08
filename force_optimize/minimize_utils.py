@@ -2,7 +2,7 @@ import os
 from openff.toolkit import Molecule
 from openmmforcefields.generators import SystemGenerator
 from openmm import unit, LangevinIntegrator
-from openmm.app import PDBFile, Simulation
+from openmm.app import PDBFile, Simulation, element
 from pdbfixer import PDBFixer
 import traceback
 from rdkit import Chem
@@ -313,7 +313,137 @@ def GetPlatform():
         logger.info(f'Set precision for platform {platform.getName()} to mixed')
     return platform
 
+def compute_distance(pos1, pos2, box_vectors=None):
+    diff = pos1 - pos2
+    if box_vectors:  # Handle periodic boundary conditions
+        box = np.array([v.value_in_unit(unit.nanometers) for v in box_vectors])
+        diff_nm = diff.value_in_unit(unit.nanometers)
+        diff_nm -= np.round(diff_nm / box.diagonal()) * box.diagonal()
+        diff = diff_nm * unit.nanometers
+    return np.sqrt(np.sum(diff.value_in_unit(unit.nanometers)**2)) * unit.nanometers
+
+# 计算残基的平均坐标（几何中心），忽略氢原子
+def compute_residue_average_position(residue, positions):
+    num_atoms = 0
+    avg_pos = np.zeros(3) * unit.nanometers
+    included_atoms = []
+    excluded_hydrogens = []
+    
+    for atom in residue.atoms():
+        if atom.element == element.hydrogen:
+            excluded_hydrogens.append(atom.index)
+            continue  # 忽略氢原子
+        pos = positions[atom.index]  # Use Quantity directly
+        avg_pos += pos
+        num_atoms += 1
+        included_atoms.append(atom.index)
+    
+    if num_atoms == 0:
+        raise ValueError(f"Residue {residue.name} (ID: {residue.id}) has no non-hydrogen atoms.")
+    
+    # if excluded_hydrogens:
+    #     print(f"Residue {residue.name} (ID: {residue.id}): Excluded {len(excluded_hydrogens)} hydrogen atoms: {excluded_hydrogens}")
+    # print(f"Residue {residue.name} (ID: {residue.id}): Included {num_atoms} non-hydrogen atoms: {included_atoms}")
+    
+    return avg_pos / num_atoms
+
+# 检查 UNK 残基与系统中其他原子的最小距离，忽略氢原子
+def check_min_distance(unk_residue, topology, positions, min_distance=3.0 * unit.angstroms, box_vectors=None):
+    unk_atoms = [atom for atom in unk_residue.atoms() if atom.element != element.hydrogen]
+    if not unk_atoms:
+        raise ValueError(f"UNK residue (ID: {unk_residue.id}) has no non-hydrogen atoms.")
+    
+    min_dist = float('inf') * unit.nanometers
+    for residue in topology.residues():
+        if residue.name != 'UNK':
+            for atom in residue.atoms():
+                if atom.element == element.hydrogen:
+                    continue  # 忽略氢原子
+                for unk_atom in unk_atoms:
+                    dist = compute_distance(
+                        positions[unk_atom.index],
+                        positions[atom.index],
+                        box_vectors
+                    )
+                    min_dist = min(min_dist, dist)
+    return min_dist
+
+# 移动 UNK 残基到远离其他残基平均坐标的方向
+def move_unk_residue(modeller, system, min_distance=3.0 * unit.angstroms, step_size=0.1 * unit.angstroms, max_steps=1000):
+    topology = modeller.topology
+    positions = modeller.positions
+    box_vectors = topology.getPeriodicBoxVectors() if topology.getPeriodicBoxVectors() else None
+
+    # 找到 UNK 残基
+    unk_residue = None
+    for residue in topology.residues():
+        if residue.name == 'UNK':
+            unk_residue = residue
+            break
+    if unk_residue is None:
+        raise ValueError("No residue named 'UNK' found in the topology.")
+
+    # 调试：检查 UNK 残基的原子
+    # print(f"Inspecting UNK residue (ID: {unk_residue.id})")
+    for atom in unk_residue.atoms():
+        is_hydrogen = atom.element == element.hydrogen
+        pos = positions[atom.index]
+        # print(f"  Atom {atom.index}: {atom.name}, Position: {pos.value_in_unit(unit.nanometers)} nm, Hydrogen: {is_hydrogen}")
+
+    # 计算其他残基的平均坐标
+    total_atoms = 0
+    other_avg_pos = np.zeros(3) * unit.nanometers
+    for residue in topology.residues():
+        if residue.name != 'UNK':
+            try:
+                res_avg_pos = compute_residue_average_position(residue, positions)
+                num_non_hydrogen_atoms = sum(1 for atom in residue.atoms() if atom.element != element.hydrogen)
+                other_avg_pos += res_avg_pos * num_non_hydrogen_atoms
+                total_atoms += num_non_hydrogen_atoms
+            except ValueError as e:
+                print(f"Skipping residue {residue.name} (ID: {residue.id}): {e}")
+    
+    if total_atoms == 0:
+        raise ValueError("No valid residues with non-hydrogen atoms found to compute average position.")
+    
+    other_avg_pos /= total_atoms
+
+    # 计算 UNK 残基的平均坐标
+    unk_avg_pos = compute_residue_average_position(unk_residue, positions)
+
+    # 计算移动方向（远离其他残基平均坐标）
+    direction = (unk_avg_pos - other_avg_pos)
+    norm = np.sqrt(np.sum(direction.value_in_unit(unit.nanometers)**2))
+    if norm == 0:
+        raise ValueError("Cannot compute direction: UNK and other residues have the same average position.")
+    direction = direction / norm  # 归一化
+
+    # 逐步移动 UNK 残基
+    step = 0
+    while step < max_steps:
+        # 检查当前最小距离
+        current_min_dist = check_min_distance(unk_residue, topology, positions, min_distance, box_vectors)
+        if current_min_dist > min_distance and step != 0:
+            print(f"Minimum distance achieved: {current_min_dist.value_in_unit(unit.angstroms):.2f} Å after {step} steps.")
+            break
+
+        # 移动 UNK 残基的所有原子（包括氢原子）
+        for atom in unk_residue.atoms():
+            pos = positions[atom.index]
+            new_pos = pos + step_size * direction / unit.angstroms / unit.angstroms * unit.nanometers
+            positions[atom.index] = new_pos
+
+        step += 1
+
+    if step == max_steps:
+        print(f"Warning: Reached maximum steps ({max_steps}) without achieving minimum distance of {min_distance}.")
+
+    # 更新 modeller 的位置
+    modeller.positions = positions
+    return modeller
+
 def EnergyMinimized(modeller,system, platform,verbose=False,device_num = 0):
+    modeller = move_unk_residue(modeller, system, min_distance=3.0 * unit.angstroms, step_size=0.01 * unit.angstroms)
     integrator = LangevinIntegrator(
     300 * unit.kelvin,
     1 / unit.picosecond,
@@ -332,7 +462,7 @@ def EnergyMinimized(modeller,system, platform,verbose=False,device_num = 0):
         )
 
 
-    simulation.minimizeEnergy()
+    # simulation.minimizeEnergy()
     if verbose:
         DescribeState(
             simulation.context.getState(

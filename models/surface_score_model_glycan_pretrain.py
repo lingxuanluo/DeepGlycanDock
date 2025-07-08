@@ -49,6 +49,47 @@ class AtomEncoder(torch.nn.Module):
             x_embedding = self.lm_embedding_layer(torch.cat([x_embedding, x[:, -self.lm_embedding_dim:]], axis=1))
         return x_embedding
 
+def safe_scatter(tp, edge_src, dim=0, dim_size=None, reduce=None):
+    # 验证输入
+    if dim_size is None:
+        dim_size = edge_src.max().item() + 1
+    assert torch.all(edge_src >= 0) and torch.all(edge_src < dim_size), "edge_src contains invalid indices"
+
+    # 第一次尝试：使用原始数据类型
+    out = scatter(tp, dim=dim, index=edge_src, dim_size=dim_size, reduce=reduce)
+    if torch.any(torch.isnan(out)):
+        # print("Warning: nan detected in output, retrying with float64")
+        tp_float64 = tp.to(dtype=torch.float64)
+        out = scatter(tp_float64, dim=dim, index=edge_src, dim_size=dim_size, reduce=reduce)
+        if torch.any(torch.isnan(out)):
+            # print("Warning: nan still persists, returning original output")
+            return out
+        
+    # 检查输出是否包含 inf 或 nan
+    if torch.any(torch.isinf(out)):
+        # print("Warning: inf detected in output, retrying with float64")
+        # 转换为 float64 并重试
+        tp_float64 = tp.to(dtype=torch.float64)
+        out = scatter(tp_float64, dim=dim, index=edge_src, dim_size=dim_size, reduce=reduce)
+        
+        if torch.any(torch.isinf(out)):
+            # print("Replacing inf with tensor's max/min values")
+            # 获取矩阵中有限值（非 inf 和非 nan）的最大值和最小值
+            finite_vals = out[torch.isfinite(out)]
+            if finite_vals.numel() > 0:  # 确保有有限值
+                max_val = finite_vals.max().item()
+                min_val = finite_vals.min().item()
+            else:
+                # 如果没有有限值，可以选择一个默认值
+                max_val = torch.finfo(torch.float16).max
+                min_val = torch.finfo(torch.float16).min
+            
+            # 将正无穷替换为矩阵的最大值，负无穷替换为矩阵的最小值
+            out = torch.where(out == float('inf'), torch.tensor(max_val, dtype=torch.float64, device=out.device), out)
+            out = torch.where(out == float('-inf'), torch.tensor(min_val, dtype=torch.float64, device=out.device), out)
+        
+        assert not torch.any(torch.isinf(out)), "Output still contains inf or nan"
+    return out
 
 class TensorProductConvLayer(torch.nn.Module):
     def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True, dropout=0.0,
@@ -75,9 +116,10 @@ class TensorProductConvLayer(torch.nn.Module):
 
         edge_src, edge_dst = edge_index
         tp = self.tp(node_attr[edge_dst], edge_sh, self.fc(edge_attr))
+        tp = torch.nan_to_num(tp, nan=0.0)
 
         out_nodes = out_nodes or node_attr.shape[0]
-        out = scatter(tp, edge_src, dim=0, dim_size=out_nodes, reduce=reduce)
+        out = safe_scatter(tp, edge_src, dim=0, dim_size=out_nodes, reduce=reduce)
 
         if self.residual:
             padded = F.pad(node_attr, (0, out.shape[-1] - node_attr.shape[-1]))
@@ -86,7 +128,7 @@ class TensorProductConvLayer(torch.nn.Module):
         if self.batch_norm:
 
             out = self.batch_norm(out)
-        return out
+        return out.to(dtype=torch.float16)
 
 class TensorProductLigConvLayer(torch.nn.Module):
     def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True, dropout=0.0,
@@ -395,35 +437,32 @@ class TensorProductScoreModel(torch.nn.Module):
         surface_node_attr = surface_node_attr + surface_inter_residue_update
 
         for l in range(len(self.lig_conv_layers)):
-
             # intra graph message passing
             lig_edge_attr_ = torch.cat([lig_edge_attr, lig_node_attr[lig_src, :self.ns], lig_node_attr[lig_dst, :self.ns]], -1)
-            lig_intra_update = self.lig_conv_layers[l](lig_node_attr, lig_edge_index, lig_edge_attr_, lig_edge_sh, data['ligand']['ligand_embedding'].reshape(-1, 1024), data['ligand']['ptr'], add_in = True)
-
+            lig_intra_update = self.lig_conv_layers[l](lig_node_attr, lig_edge_index, lig_edge_attr_, lig_edge_sh, data['ligand']['ligand_embedding'].reshape(-1, 1024), data['ligand']['ptr'], add_in=True)
 
             # surface inter graph message passing
             surface_to_lig_edge_attr_ = torch.cat([surface_cross_edge_attr, lig_node_attr[surface_cross_lig, :self.ns], surface_node_attr[surface_cross_rec, :self.ns]], -1)
             surface_lig_inter_update = self.surface_to_lig_conv_layers[l](surface_node_attr, surface_cross_edge_index, surface_to_lig_edge_attr_, surface_cross_edge_sh,
-                                                              out_nodes=lig_node_attr.shape[0])
-            
-            if l != len(self.lig_conv_layers) - 1:
+                                                                    out_nodes=lig_node_attr.shape[0])
 
+            if l != len(self.lig_conv_layers) - 1:
                 # surface intra graph message passing
                 surface_edge_attr_ = torch.cat([surface_edge_attr, surface_node_attr[surface_src, :self.ns], surface_node_attr[surface_dst, :self.ns]], -1)
                 surface_intra_update = self.surface_conv_layers[l](surface_node_attr, surface_edge_index, surface_edge_attr_, surface_edge_sh)
 
+
                 # lig to surface inter graph message passing
                 lig_to_surface_edge_attr_ = torch.cat([surface_cross_edge_attr, lig_node_attr[surface_cross_lig, :self.ns], surface_node_attr[surface_cross_rec, :self.ns]], -1)
-                
                 surface_inter_update = self.lig_to_surface_conv_layers[l](lig_node_attr, torch.flip(surface_cross_edge_index, dims=[0]), lig_to_surface_edge_attr_, surface_cross_edge_sh,
-                                                              out_nodes=surface_node_attr.shape[0])
+                                                                    out_nodes=surface_node_attr.shape[0])
 
             # padding original features
             lig_node_attr = F.pad(lig_node_attr, (0, lig_intra_update.shape[-1] - lig_node_attr.shape[-1]))
             # update features with residual updates
             lig_node_attr = lig_node_attr + lig_intra_update + surface_lig_inter_update
-            if l != len(self.lig_conv_layers) - 1:
 
+            if l != len(self.lig_conv_layers) - 1:
                 # surface update
                 surface_node_attr = F.pad(surface_node_attr, (0, surface_intra_update.shape[-1] - surface_node_attr.shape[-1]))
                 surface_node_attr = surface_node_attr + surface_intra_update + surface_inter_update
@@ -439,7 +478,9 @@ class TensorProductScoreModel(torch.nn.Module):
         center_edge_attr = self.center_edge_embedding(center_edge_attr)
         center_edge_attr = torch.cat([center_edge_attr, lig_node_attr[center_edge_index[1], :self.ns]], -1)
         # print(lig_node_attr, center_edge_index, center_edge_attr, center_edge_sh,data.num_graphs)
+        lig_node_attr = torch.nan_to_num(lig_node_attr, nan=0.0)
         global_pred = self.final_conv(lig_node_attr, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
+        global_pred = torch.nan_to_num(global_pred, nan=0.0)
 
         tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
         rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
@@ -454,6 +495,9 @@ class TensorProductScoreModel(torch.nn.Module):
         if self.scale_by_sigma:
             tr_pred = tr_pred / tr_sigma.unsqueeze(1)
             rot_pred = rot_pred * so3.score_norm(rot_sigma.cpu()).unsqueeze(1).to(data['ligand'].x.device)
+        tr_pred = torch.nan_to_num(tr_pred, nan=0.0)
+        rot_pred = torch.nan_to_num(rot_pred, nan=0.0)
+
 
         if self.no_torsion or data['ligand'].edge_mask.sum() == 0: return tr_pred, rot_pred, torch.empty(0, device=self.device)
         # torsional components
@@ -470,6 +514,7 @@ class TensorProductScoreModel(torch.nn.Module):
                                   out_nodes=data['ligand'].edge_mask.sum(), reduce='mean')
         tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
         edge_sigma = tor_sigma[data['ligand'].batch][data['ligand', 'ligand'].edge_index[0]][data['ligand'].edge_mask]
+        tor_pred = torch.nan_to_num(tor_pred, nan=0.0)
 
         if self.scale_by_sigma:
             tor_pred = tor_pred * torch.sqrt(torch.tensor(torus.score_norm(edge_sigma.cpu().numpy())).float()
