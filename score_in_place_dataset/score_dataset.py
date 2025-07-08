@@ -1,6 +1,7 @@
 import os
 import copy
 import torch
+import traceback
 from rdkit.Chem import RemoveHs
 import MDAnalysis as mda
 from plyfile import PlyData
@@ -56,7 +57,7 @@ class ScreenDataset(Dataset):
             if len(finished_samples) == 0:
                 self.finished_idx = 0
             else:
-                max_inner_idx = [int(re.findall(r'file_inner_idx_(\d+)', sample)[0]) for sample in finished_samples]
+                max_inner_idx = [int(re.findall(r'rank_(\d+)', sample)[0]) for sample in finished_samples]
                 self.finished_idx = max(max_inner_idx)+1
         
         self.preprocessing()
@@ -168,17 +169,17 @@ class ScreenDataset(Dataset):
             if not self.keep_input_pose:
                 num_cores = multiprocessing.cpu_count()
                 if len(ligs) > 0:
-                    ligs = Parallel(n_jobs = min(max(1,len(ligs)),max(1,num_cores-10)),backend = 'threading')(delayed(initConformer)(lig_mol,self.inference_mode) for lig_mol in tqdm(ligs,total = len(ligs)))
+                    # ligs = Parallel(n_jobs = min(max(1,len(ligs)),max(1,num_cores-10)),backend = 'threading')(delayed(initConformer)(lig_mol,self.inference_mode) for lig_mol in tqdm(ligs,total = len(ligs)))
+                    results = [initConformer(lig_mol, self.inference_mode) for lig_mol in tqdm(ligs, total=len(ligs))]
                     ligs = [mol for mol in ligs if mol is not None and mol.GetNumConformers() > 0][self.finished_idx:]
                 
             self.ligand_names = [os.path.basename(self.ligands_path)]*len(ligs)
         complex_graph = HeteroData()
         complex_graph['name'] = name
-        # logger.info(f'Processing {name}')
+        logger.info(f'Processing {name}, {ligs}, {self.ref_ligand}')
         try:
             if self.ref_ligand is None:
-
-                logger.warning('No reference ligand was provided. Using the first ligand in the list as reference.')
+                logger.warning(f'No reference ligand was provided. Using the first ligand in the list as reference {self.ligands_path}.')
                 self.ref_ligand = ligs[0]
             rec, rec_coords, c_alpha_coords, n_coords, c_coords, lm_embeddings = extract_receptor_structure(copy.deepcopy(rec_model), self.ref_ligand,save_file=pure_pocket_path, lm_embedding_chains=lm_embedding_chains)
             if lm_embeddings is not None and c_alpha_coords is not None and len(c_alpha_coords) != len(lm_embeddings):
@@ -189,6 +190,7 @@ class ScreenDataset(Dataset):
                             atom_radius=self.atom_radius, atom_max_neighbors=self.atom_max_neighbors, remove_hs=self.remove_hs, lm_embeddings=lm_embeddings)
         except Exception as e:
             logger.info(f'Skipping {name} because of the error:{e}')
+            traceback.print_exc()
 
             return [],[]
 
