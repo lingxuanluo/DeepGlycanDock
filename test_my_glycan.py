@@ -4,6 +4,10 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 import logging
+import random
+
+# Generate a random 5-digit port number (10000 to 99999)
+random_port = random.randint(10000, 99999)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -126,7 +130,7 @@ def run_docking_pipeline(protein_path, ligand_path, ref_ligand_path, pocket_resi
     docking_out_dir = output_dir
     docking_out_dir.mkdir(parents=True, exist_ok=True)
     cmd7 = (
-        f"python -m accelerate.commands.launch --main_process_port 29515 --num_processes 1 ./inference_accelerate_glycan{'_res' if pocket_residue else ''}.py "
+        f"python -m accelerate.commands.launch --main_process_port {random_port} --num_processes 1 ./inference_accelerate_glycan{'_res' if pocket_residue else ''}.py "
         f"--data_csv {csv_path} "
         f"--model_dir ./model_weights/glycan_finetune "
         f"--ckpt epoch_best_model.pt "
