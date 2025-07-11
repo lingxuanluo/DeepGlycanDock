@@ -86,7 +86,8 @@ pip install https://github.com/nuvolos-cloud/PyMesh/releases/download/v0.3.1/pym
 ```bash
 mamba install -y loguru
 pip install dimorphite_dl prefetch_generator esm==3.1.1 --no-deps
-pip install zstd==1.5.6.6 biotite==0.41.2 cloudpathlib==0.21.0 msgpack-numpy==0.4.8 tenacity==9.0.0 torchtext==0.17.2 --no-deps
+pip install zstd==1.5.6.6 biotite==0.41.2 cloudpathlib==0.21.0 msgpack-numpy==0.4.8 tenacity==9.0.0 torchtext==0.17.2 torchvision==0.22.1 einops==0.8.1 --no-deps
+pip install unimol_tools
 ```
 
 ### Install MaSIF and Data Processing Dependencies
