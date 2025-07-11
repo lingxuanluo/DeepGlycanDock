@@ -43,7 +43,7 @@ mamba install -y -c pytorch -c nvidia pytorch pytorch-cuda=12.1
 ### Install Core Dependencies
 
 ```bash
-mamba install -y -c conda-forge -c pytorch -c pyg numpy==1.20 scipy==1.8.1 pandas==2.1.2
+mamba install -y -c conda-forge -c pytorch -c pyg numpy==1.23.5 scipy==1.8.1 pandas==2.1.2
 conda clean -ya
 ```
 
