@@ -97,6 +97,8 @@ mamba install -y -c mx reduce
 mamba install -y -c conda-forge openbabel
 ```
 
+Upload ./finetuned_unimol_model/unimolv2.py to your_path/envs/DeepGlycanDock/lib/python3.10/site-packages/unimol_tools/models/unimolv2.py and ./finetuned_unimol_model/model_config.py to your_path/envs/DeepGlycanDock/lib/python3.10/site-packages/unimol_tools/config/model_config.py, then download our retrained model from 10.5281/zenodo.15875948
+
 These scripts demonstrate how to use DeepGlycanDock for evaluation and compound screening.
 
 ## Running DeepGlycanDock on Your Complexes
