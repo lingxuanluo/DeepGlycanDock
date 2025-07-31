@@ -37,7 +37,7 @@ conda clean -ya
 ### Install PyTorch with CUDA Support
 
 ```bash
-mamba install -y -c pytorch -c nvidia pytorch pytorch-cuda=12.1
+conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=12.1 -c pytorch -c nvidia
 ```
 
 ### Install Core Dependencies
